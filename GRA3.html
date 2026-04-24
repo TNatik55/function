@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>КАРТКАІНТЕРАКТИВ: Графіки Функцій</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        :root {
+            --primary: #3498db; --success: #2ecc71; --danger: #e74c3c;
+            --bg: #f4f7f6; --text: #2c3e50;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg); color: var(--text);
+            margin: 0; padding: 10px; display: flex; justify-content: center; min-height: 100vh;
+        }
+        .quiz-container {
+            background: white; width: 100%; max-width: 900px;
+            padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center; position: relative; margin: auto;
+        }
+        #timer-bar {
+            height: 6px; background: var(--primary); width: 100%;
+            position: absolute; top: 0; left: 0; border-radius: 20px 20px 0 0;
+            transition: width 1s linear;
+        }
+        .progress-info { color: #7f8c8d; font-size: 0.9rem; margin-bottom: 10px; }
+        .q-text { font-size: 1.25rem; margin: 15px 0 25px 0; min-height: 3em; font-weight: 600; line-height: 1.4; }
+        
+        .options-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px; margin-bottom: 25px;
+        }
+        .card {
+            border: 2px solid #ddd; border-radius: 15px; padding: 10px;
+            cursor: pointer; transition: 0.3s; background: white;
+            position: relative; animation: cardEntry 0.5s ease-out;
+        }
+        @keyframes cardEntry { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        
+        .card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .card.selected { border-color: var(--primary); background: #f0f8ff; }
+        .card.correct { border-color: var(--success); background: #eafff2; }
+        .card.wrong { border-color: var(--danger); background: #ffeaee; }
+        
+        .label { position: absolute; top: 8px; left: 10px; font-weight: bold; color: #95a5a6; }
+        svg { width: 100%; height: auto; max-width: 150px; }
+        .axis { stroke: #333; stroke-width: 1.2; }
+        .grid { stroke: #eee; stroke-width: 0.8; }
+        .line { stroke: var(--primary); stroke-width: 3; fill: none; stroke-linecap: round; }
+
+        .btn-box { min-height: 60px; }
+        button {
+            padding: 14px 35px; font-size: 1rem; border: none; border-radius: 50px;
+            cursor: pointer; background: var(--primary); color: white; transition: 0.3s;
+            font-weight: bold; box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+        }
+        button:disabled { background: #bdc3c7; box-shadow: none; cursor: not-allowed; }
+        #next-btn { display: none; background: var(--success); box-shadow: 0 4px 10px rgba(46, 204, 113, 0.3); }
+
+        #feedback { font-size: 1.2rem; font-weight: bold; margin-bottom: 15px; min-height: 1.5em; }
+        .correct-f { color: var(--success); }
+        .wrong-f { color: var(--danger); }
+
+        @media (max-width: 600px) {
+            .options-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .q-text { font-size: 1.1rem; }
+            .quiz-container { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="quiz-container">
+    <div id="timer-bar"></div>
+    <div class="progress-info">Питання <span id="q-num">1</span>/12 | Бали: <span id="score-val">0</span></div>
+    <div class="q-text" id="q-text">Завантаження...</div>
+
+    <div class="options-grid" id="options"></div>
+    
+    <div id="feedback"></div>
+
+    <div class="btn-box">
+        <button id="submit-btn" onclick="checkAnswer()" disabled>Відповісти</button>
+        <button id="next-btn" onclick="nextQuestion()">Наступне питання →</button>
+    </div>
+
+    <div id="result-screen" style="display:none;">
+        <h1>Тест завершено!</h1>
+        <div style="font-size: 4rem; color: var(--primary); margin: 20px 0;" id="final-score">0</div>
+        <p id="final-comment" style="font-size: 1.2rem; margin-bottom: 25px;"></p>
+        <button onclick="location.reload()">Почати спочатку</button>
+    </div>
+</div>
+
+<script>
+// Звуковий рушій
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, type) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.6);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.6);
+}
+
+// Конструктор графіків
+const svgBase = `<svg viewBox="-55 -55 110 110"><defs><marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/></marker></defs><path class="grid" d="M-50 -40 H50 M-50 -30 H50 M-50 -20 H50 M-50 -10 H50 M-50 10 H50 M-50 20 H50 M-50 30 H50 M-50 40 H50 M-40 -50 V50 M-30 -50 V50 M-20 -50 V50 M-10 -50 V50 M10 -50 V50 M20 -50 V50 M30 -50 V50 M40 -50 V50"/><line class="axis" x1="-50" y1="0" x2="52" y2="0" marker-end="url(#arr)"/><line class="axis" x1="0" y1="50" x2="0" y2="-52" marker-end="url(#arr)"/><text x="42" y="12" font-size="8">x</text><text x="6" y="-42" font-size="8">y</text>`;
+const gLinear = svgBase + `<path class="line" d="M -45 45 L 45 -5" /></svg>`;
+const gProp = svgBase + `<path class="line" d="M -30 45 L 30 -45" /></svg>`;
+const gPara = svgBase + `<path class="line" d="M -25 -45 Q 0 60 25 -45" /></svg>`;
+const gHyper = svgBase + `<path class="line" d="M -45 -5 Q -10 -5 -5 -45 M 5 45 Q 10 5 45 5" /></svg>`;
+const gRoot = svgBase + `<path class="line" d="M 0 0 Q 5 -20 45 -30" /></svg>`;
+const gStatic = svgBase + `<path class="line" d="M -45 -20 L 45 -20" /></svg>`;
+const gDownPara = svgBase + `<path class="line" d="M -25 45 Q 0 -60 25 45" /></svg>`;
+const gDownLinear = svgBase + `<path class="line" d="M -45 -35 L 45 35" /></svg>`;
+
+const questionsData = [
+    { q: "Оберіть графік <b>лінійної функції</b> \\(y = kx + b\\), де \\(k \\neq 0, b \\neq 0\\).", a: 0, opts: [gLinear, gPara, gHyper, gRoot, gProp] },
+    { q: "Оберіть графік, що відповідає <b>прямій пропорційності</b> \\(y = kx\\).", a: 2, opts: [gLinear, gHyper, gProp, gPara, gRoot] },
+    { q: "Який із графіків є <b>параболою</b> (квадратична функція)?", a: 4, opts: [gProp, gLinear, gHyper, gRoot, gPara] },
+    { q: "Оберіть графік функції <b>оберненої пропорційності</b> \\(y = \\frac{k}{x}\\).", a: 1, opts: [gRoot, gHyper, gPara, gProp, gLinear] },
+    { q: "Графік якої функції обов'язково проходить через <b>початок координат</b> \\((0;0)\\)?", a: 4, opts: [gLinear, gPara, gHyper, gRoot, gProp] },
+    { q: "Для якої функції областю визначення є проміжок \\(x \\in [0; +\\infty)\\)?", a: 0, opts: [gRoot, gLinear, gProp, gPara, gHyper] },
+    { q: "Оберіть графік <b>спадної</b> лінійної функції (\\(k < 0\\)).", a: 3, opts: [gLinear, gRoot, gPara, gDownLinear, gProp] },
+    { q: "Графік якої функції називають <b>гіперболою</b>?", a: 1, opts: [gPara, gHyper, gLinear, gRoot, gProp] },
+    { q: "Яка функція є <b>парною</b> (графік симетричний відносно осі \\(OY\\))?", a: 3, opts: [gLinear, gHyper, gProp, gPara, gRoot] },
+    { q: "Оберіть графік функції \\(y = x^2\\), де вітки напрямлені вниз.", a: 1, opts: [gLinear, gDownPara, gHyper, gRoot, gPara] },
+    { q: "Яка функція <b>не визначена</b> в точці \\(x = 0\\)?", a: 2, opts: [gLinear, gPara, gHyper, gProp, gRoot] },
+    { q: "Який графік відповідає функції \\(y = b\\) (стала функція)?", a: 0, opts: [gStatic, gLinear, gProp, gPara, gHyper] }
+];
+
+let curIdx = 0, score = 0, selected = null, timer, timeLeft = 15;
+
+function startTimer() {
+    timeLeft = 15;
+    document.getElementById('timer-bar').style.width = "100%";
+    clearInterval(timer);
+    timer = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer-bar').style.width = (timeLeft / 15 * 100) + "%";
+        if (timeLeft <= 0) { clearInterval(timer); checkAnswer(true); }
+    }, 1000);
+}
+
+function loadQuestion() {
+    startTimer();
+    const data = questionsData[curIdx];
+    document.getElementById('q-num').innerText = curIdx + 1;
+    document.getElementById('q-text').innerHTML = data.q;
+    if(window.MathJax) MathJax.typeset();
+
+    const container = document.getElementById('options');
+    container.innerHTML = '';
+    data.opts.forEach((svg, i) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<span class="label">${String.fromCharCode(65+i)}</span>${svg}`;
+        card.onclick = () => {
+            if(document.getElementById('next-btn').style.display === 'inline-block') return;
+            selected = i;
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            document.getElementById('submit-btn').disabled = false;
+        };
+        container.appendChild(card);
+    });
+    document.getElementById('feedback').innerText = '';
+    document.getElementById('submit-btn').style.display = 'inline-block';
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('next-btn').style.display = 'none';
+}
+
+function checkAnswer(timeout = false) {
+    clearInterval(timer);
+    const correct = questionsData[curIdx].a;
+    const cards = document.querySelectorAll('.card');
+    const feed = document.getElementById('feedback');
+    
+    if (timeout) {
+        beep(150, 'sawtooth');
+        feed.innerText = "⏳ Час вийшов!"; feed.className = "wrong-f";
+    } else if (selected === correct) {
+        score++;
+        beep(600, 'sine');
+        feed.innerText = "✅ Правильно!"; feed.className = "correct-f";
+        cards[selected].classList.add('correct');
+    } else {
+        beep(150, 'sawtooth');
+        feed.innerText = `❌ Помилка! Правильна відповідь: ${String.fromCharCode(65+correct)}`;
+        feed.className = "wrong-f";
+        if(selected !== null) cards[selected].classList.add('wrong');
+    }
+    
+    cards[correct].classList.add('correct');
+    document.getElementById('score-val').innerText = score;
+    document.getElementById('submit-btn').style.display = 'none';
+    document.getElementById('next-btn').style.display = 'inline-block';
+}
+
+function nextQuestion() {
+    curIdx++;
+    if (curIdx < questionsData.length) { selected = null; loadQuestion(); }
+    else {
+        document.getElementById('quiz-screen').style.display = 'none';
+        document.getElementById('result-screen').style.display = 'block';
+        document.getElementById('final-score').innerText = score + "/12";
+        document.getElementById('final-comment').innerText = score > 9 ? "Ви відмінно знаєте графіки!" : "Варто ще трохи попрактикуватися.";
+    }
+}
+
+loadQuestion();
+</script>
+</body>
+</html>
